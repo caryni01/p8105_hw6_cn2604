@@ -1,0 +1,122 @@
+---
+title: "p8105_hw6_cn2604"
+author: "Cary Ni"
+date: "2022-11-19"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+
+knitr::opts_chunk$set(
+	echo = TRUE,
+	warning = FALSE,
+	message = FALSE,
+	fig.width = 8, 
+  fig.height = 6,
+  out.width = "90%"
+)
+
+options(
+  ggplot2.continuous.colour = "viridis",
+  ggplot2.continuous.fill = "viridis"
+)
+
+scale_colour_discrete = scale_colour_viridis_d
+scale_fill_discrete = scale_fill_viridis_d
+
+theme_set(theme_minimal() + theme(legend.position = "bottom"))
+```
+
+# Problem 2
+```{r}
+homi_df = read_csv("./data/homicide-data.csv") %>% 
+  janitor::clean_names() %>% 
+  mutate(
+    city_state = paste(city, state, sep = ", "),
+    outcome = case_when(
+      disposition == 'Closed without arrest' ~ 'unsolved',
+      disposition == 'Open/No arrest' ~ 'unsolved',
+      disposition == 'Closed by arrest' ~ 'solved', 
+      TRUE ~ 'unknown'
+    )
+  ) %>% 
+  relocate(city_state, .after = state)
+
+new_df = homi_df %>% 
+  filter(!city_state %in% c("Dallas, TX", "Phoenix, AZ", "Kansas City, MO", "Tulsa, AL")) %>% 
+  filter(victim_race %in% c("White", "Black")) %>% 
+  mutate(
+    outcome = as.factor(outcome),
+    victim_race = as.factor(victim_race),
+    victim_sex = as.factor(victim_sex),
+    victim_age = as.numeric(victim_age)
+  ) %>% 
+  na.omit()
+```
+
+Build the model for Baltimore 
+
+```{r}
+baltimore_model = new_df %>% 
+  filter(city_state == "Baltimore, MD") %>% 
+  glm(outcome ~ victim_age + victim_sex + victim_race, data =., family = "binomial")
+
+estimate_odd = baltimore_model %>% 
+  broom::tidy() %>% 
+  filter(term == 'victim_sexMale') %>% 
+  select(estimate) %>% 
+  exp()
+  
+conf_odd_raw = exp(confint.default(baltimore_model))
+conf_odd = conf_odd_raw['victim_sexMale',] %>% as_tibble_row()
+baltimore_result = merge(estimate_odd, conf_odd)
+```
+
+Create a function
+```{r}
+get_outcome = function(sample_df){
+  city_model = glm(outcome ~ victim_age + victim_sex + victim_race, 
+                   data = sample_df, 
+                   family = "binomial")
+  
+  sample_odd = city_model %>% 
+  broom::tidy() %>% 
+  filter(term == 'victim_sexMale') %>% 
+  select(estimate) %>% 
+  exp()
+  
+  conf_odd_raw = exp(confint.default(city_model))
+  conf_odd = conf_odd_raw['victim_sexMale',] %>% as_tibble_row()
+  sample_result = merge(sample_odd, conf_odd)
+}
+```
+
+Pass cities to the function
+```{r}
+result_df = 
+  new_df %>% 
+  group_by(city_state) %>% 
+  nest() %>% 
+  mutate(
+    city_result = map(data, get_outcome)
+  ) %>% 
+  unnest(city_result) %>% 
+  select(-data) %>%
+  set_names(c("city_state", "estimate_OR", "conf.low", "conf.high"))
+
+```
+
+Create the plot
+```{r}
+result_df %>% 
+  ggplot(aes(x = reorder(city_state,-estimate_OR), y = estimate_OR)) + 
+  geom_point() +
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high)) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs(
+    title = "Odds ratio of homicide solved of male against female",
+    x = "City",
+    y = "Estimate Odds ratio")
+```
+
