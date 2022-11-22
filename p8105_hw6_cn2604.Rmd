@@ -7,6 +7,8 @@ output: html_document
 
 ```{r setup, include=FALSE}
 library(tidyverse)
+library(glmnet)
+library(fastDummies)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -130,7 +132,7 @@ birth_df = read_csv("./data/birthweight.csv") %>%
   janitor::clean_names() %>% 
   mutate_at(c('babysex', 'frace', 'malform', 'mrace'), as.factor) %>% 
   mutate(
-    smoke = as.factor(ifelse(smoken > 0, 1, 0))
+    smoken = as.factor(ifelse(smoken > 0, 1, 0))
   )
 
 sum(is.na(birth_df))
@@ -138,8 +140,85 @@ sum(is.na(birth_df))
 
 `'babysex', 'frace', 'malform', 'mrace'` are changed from double to factors and no missing values are found in the dataframe. 
 
+## Cross validation to find parameters for model building
+```{r}
+set.seed(1)
+# those categorical variables have different indicator for different levels, which needs to be uniform through converting to dummy variables
+dummy_df = dummy_cols(
+  birth_df, 
+  select_columns = c('babysex', 'frace', 'malform', 'mrace','smoken'),
+  remove_selected_columns = TRUE,
+  remove_first_dummy = TRUE
+  )
+covariates = data.matrix(dummy_df %>% select(-bwt))
+birthweight = data.matrix(dummy_df %>% select(bwt))
+# 10 folds cv is used 
+cv_object = cv.glmnet(covariates, birthweight, nfolds = 10)
+plot(cv_object)
+# Find the best lambda with lowest se
+best_lambda = cv_object %>% broom::glance() %>% pull(lambda.min)
+
+```
+
+## Build elastic net regression model
+```{r}
+ela_model = glmnet(covariates, birthweight, lambda = best_lambda, alpha = 0.5)
+model_coef = coef.glmnet(ela_model) %>% as.matrix() %>% as.data.frame()
+model_coef[model_coef == 0] = NA
+# Extract all of the non-zero variables of elastic net model
+selected_var = model_coef %>% na.omit() %>% row.names()
+selected_var = selected_var[-1]
+
+final_var = dummy_df %>% select(selected_var) %>% data.matrix()
+final_weight = dummy_df %>% pull(bwt)
+my_model = lm(final_weight ~ final_var)
+# show all of the variables
+my_model %>% broom::tidy() %>% transform(term = str_replace(term, "final_var", "")) %>% knitr::kable()
+```
+
+## Plot residuals against fitted values
+```{r}
+birth_df %>% 
+  modelr::add_residuals(my_model) %>% 
+  modelr::add_predictions(my_model) %>% 
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point(alpha = 0.5)
+```
+
+## Compare to other two linear models
+```{r}
+model_1 = lm(bwt ~ blength + gaweeks, data = birth_df)
+model_2 = lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead*blength*babysex, data = birth_df)
+
+# Create dataframe for cross validation
+cv_result = 
+  modelr::crossv_mc(dummy_df, 100) %>% 
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv_result = 
+  cv_result %>% 
+  mutate(
+    my_model = map(train, ~lm(bwt ~ bhead + blength + delwt + fincome + 
+    gaweeks+ menarche + mheight + momage + parity + wtgain + babysex_2 + frace_4     + mrace_2 + mrace_3 + mrace_4 + smoken_1, data = .x)),
+    model_1 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
+    model_2 = map(train, ~lm(bwt ~ bhead + blength + babysex + bhead*blength + 
+    bhead*babysex + blength*babysex+ bhead*blength*babysex, data = .x))
+  ) %>% 
+  mutate(
+    rmse_my = map2_dbl(my_model, test, ~rmse(model=.x, data = .y)),
+    rmse_model_1 = map2_dbl(model_1, test, ~rmse(model=.x, data = .y)),
+    rmse_model_2 = map2_dbl(model_2, test, ~rmse(model=.x, data = .y))
+  )
+  
+```
+
+## Compare rmse as an indicator of model performance
 ```{r}
 
 ```
+
 
 
