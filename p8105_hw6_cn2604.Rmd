@@ -29,6 +29,8 @@ theme_set(theme_minimal() + theme(legend.position = "bottom"))
 ```
 
 # Problem 2
+
+## Data cleaning
 ```{r}
 homi_df = read_csv("./data/homicide-data.csv") %>% 
   janitor::clean_names() %>% 
@@ -55,7 +57,7 @@ new_df = homi_df %>%
   na.omit()
 ```
 
-Build the model for Baltimore 
+## Build the model for Baltimore, MD
 
 ```{r}
 baltimore_model = new_df %>% 
@@ -73,7 +75,7 @@ conf_odd = conf_odd_raw['victim_sexMale',] %>% as_tibble_row()
 baltimore_result = merge(estimate_odd, conf_odd)
 ```
 
-Create a function
+## Create a function
 ```{r}
 get_outcome = function(sample_df){
   city_model = glm(outcome ~ victim_age + victim_sex + victim_race, 
@@ -92,7 +94,7 @@ get_outcome = function(sample_df){
 }
 ```
 
-Pass cities to the function
+## Pass cities to the function
 ```{r}
 result_df = 
   new_df %>% 
@@ -107,7 +109,7 @@ result_df =
 
 ```
 
-Create the plot
+## Create the plot for odds ratio of homicide
 ```{r}
 result_df %>% 
   ggplot(aes(x = reorder(city_state,-estimate_OR), y = estimate_OR)) + 
@@ -119,4 +121,25 @@ result_df %>%
     x = "City",
     y = "Estimate Odds ratio")
 ```
+
+# Problem 3
+
+## Data cleaning
+```{r}
+birth_df = read_csv("./data/birthweight.csv") %>% 
+  janitor::clean_names() %>% 
+  mutate_at(c('babysex', 'frace', 'malform', 'mrace'), as.factor) %>% 
+  mutate(
+    smoke = as.factor(ifelse(smoken > 0, 1, 0))
+  )
+
+sum(is.na(birth_df))
+```
+
+`'babysex', 'frace', 'malform', 'mrace'` are changed from double to factors and no missing values are found in the dataframe. 
+
+```{r}
+
+```
+
 
