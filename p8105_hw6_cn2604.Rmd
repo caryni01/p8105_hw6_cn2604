@@ -9,6 +9,7 @@ output: html_document
 library(tidyverse)
 library(glmnet)
 library(fastDummies)
+library(modelr)
 
 knitr::opts_chunk$set(
 	echo = TRUE,
@@ -179,8 +180,8 @@ my_model %>% broom::tidy() %>% transform(term = str_replace(term, "final_var", "
 ## Plot residuals against fitted values
 ```{r}
 birth_df %>% 
-  modelr::add_residuals(my_model) %>% 
-  modelr::add_predictions(my_model) %>% 
+  add_residuals(my_model) %>% 
+  add_predictions(my_model) %>% 
   ggplot(aes(x = pred, y = resid)) +
   geom_point(alpha = 0.5)
 ```
@@ -188,7 +189,7 @@ birth_df %>%
 ## Compare to other two linear models
 ```{r}
 model_1 = lm(bwt ~ blength + gaweeks, data = birth_df)
-model_2 = lm(bwt ~ bhead + blength + babysex + bhead*blength + bhead*babysex + blength*babysex + bhead*blength*babysex, data = birth_df)
+model_2 = lm(bwt ~ bhead*blength*babysex, data = birth_df)
 
 # Create dataframe for cross validation
 cv_result = 
@@ -204,21 +205,30 @@ cv_result =
     my_model = map(train, ~lm(bwt ~ bhead + blength + delwt + fincome + 
     gaweeks+ menarche + mheight + momage + parity + wtgain + babysex_2 + frace_4     + mrace_2 + mrace_3 + mrace_4 + smoken_1, data = .x)),
     model_1 = map(train, ~lm(bwt ~ blength + gaweeks, data = .x)),
-    model_2 = map(train, ~lm(bwt ~ bhead + blength + babysex + bhead*blength + 
-    bhead*babysex + blength*babysex+ bhead*blength*babysex, data = .x))
+    model_2 = map(train, ~lm(bwt ~ bhead*blength*babysex_2, data = .x))
   ) %>% 
   mutate(
-    rmse_my = map2_dbl(my_model, test, ~rmse(model=.x, data = .y)),
-    rmse_model_1 = map2_dbl(model_1, test, ~rmse(model=.x, data = .y)),
-    rmse_model_2 = map2_dbl(model_2, test, ~rmse(model=.x, data = .y))
-  )
+    rmse_my = map2_dbl(my_model, test, ~rmse(model = .x, data = .y)),
+    rmse_model_1 = map2_dbl(model_1, test, ~rmse(model = .x, data = .y)),
+    rmse_model_2 = map2_dbl(model_2, test, ~rmse(model = .x, data = .y))
+  ) 
   
 ```
 
 ## Compare rmse as an indicator of model performance
 ```{r}
-
+cv_result %>% 
+  select(starts_with('rmse')) %>% 
+  pivot_longer(
+    everything(), 
+    names_to = "model",
+    values_to = "rmse",
+    names_prefix = "rmse_"
+  ) %>% 
+  mutate(model = fct_inorder(model)) %>% 
+  ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
 
+The result shows that the model from elastic net has lowest rmse which shows best predictive accurancy compared to two other models. 
 
 
