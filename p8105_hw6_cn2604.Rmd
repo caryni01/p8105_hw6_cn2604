@@ -161,15 +161,16 @@ best_lambda = cv_object %>% broom::glance() %>% pull(lambda.min)
 
 ```
 
-## Build elastic net regression model
+## Build elastic net regression model to find proper parameters
 ```{r}
 ela_model = glmnet(covariates, birthweight, lambda = best_lambda, alpha = 0.5)
 model_coef = coef.glmnet(ela_model) %>% as.matrix() %>% as.data.frame()
+coef.glmnet(ela_model)
 model_coef[model_coef == 0] = NA
 # Extract all of the non-zero variables of elastic net model
 selected_var = model_coef %>% na.omit() %>% row.names()
 selected_var = selected_var[-1]
-
+# Use the parameters to build a MLR model
 final_var = dummy_df %>% select(selected_var) %>% data.matrix()
 final_weight = dummy_df %>% pull(bwt)
 my_model = lm(final_weight ~ final_var)
@@ -188,12 +189,10 @@ birth_df %>%
 
 ## Compare to other two linear models
 ```{r}
-model_1 = lm(bwt ~ blength + gaweeks, data = birth_df)
-model_2 = lm(bwt ~ bhead*blength*babysex, data = birth_df)
 
 # Create dataframe for cross validation
 cv_result = 
-  modelr::crossv_mc(dummy_df, 100) %>% 
+  crossv_mc(dummy_df, 100) %>% 
   mutate(
     train = map(train, as_tibble),
     test = map(test, as_tibble)
@@ -229,6 +228,6 @@ cv_result %>%
   ggplot(aes(x = model, y = rmse)) + geom_violin()
 ```
 
-The result shows that the model from elastic net has lowest rmse which shows best predictive accurancy compared to two other models. 
+The result shows that the model with variables selected from the elastic net regression has lowest rmse which shows best predictive accurancy compared to two other models. 
 
 
